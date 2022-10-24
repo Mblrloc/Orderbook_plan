@@ -1,6 +1,7 @@
 import logging
 
 
+# instead of actual blockchain usage we will use this singleton to store all SC and users wallets
 class Blockchain:
     INCREASE = 0
     DECREASE = 1
@@ -38,4 +39,4 @@ class Blockchain:
 
     def transfer(self, user_from, user_to, currency, qnt):
         self.change_balance(user_from, currency, qnt, mode=Blockchain.DECREASE)
-        self.change_balance(user_to, currency, qnt, mode=Blockchain.INCREASE)
+        self.change_balance(user_to, currency, qnt,   mode=Blockchain.INCREASE)

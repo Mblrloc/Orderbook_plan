@@ -8,17 +8,17 @@ class SmartContract:
     TAKER = 1
 
     def __init__(self, u_id, maker, taker, parr_A, parr_B, qnt_A, qnt_B, exp_date=0):
-        self.u_id = u_id
-        self.maker = maker
-        self.taker = taker
-        self.parr_A = parr_A
-        self.parr_B = parr_B
-        self.qnt_A = qnt_A
-        self.qnt_B = qnt_B
-        self.history = {}
-        self.exp_date = exp_date
-        self.blockchain = blockchain.Blockchain()
-        self.active = True
+        self.u_id = u_id                           # contract id in blockchain
+        self.maker = maker                         # maker id
+        self.taker = taker                         # taker id
+        self.parr_A = parr_A                       # maker currency
+        self.parr_B = parr_B                       # taker currency
+        self.qnt_A = qnt_A                         # quantity of parr_A
+        self.qnt_B = qnt_B                         # quantity of parr_B
+        self.history = {}                          # history of all entry point usages with non-zero number of tokens
+        self.exp_date = exp_date                   # expiration date
+        self.blockchain = blockchain.Blockchain()  # our "blockchain"
+        self.active = True                         # activeness of contract
 
     def entry_point(self, user, currency, qnt):
         if qnt >= 0:
@@ -27,7 +27,7 @@ class SmartContract:
         else:
             logging.info("ep: negative qnt of ep tokens")
 
-    def check_user(self, mode):
+    def check_user(self, mode):                    # check if maker/taker added enough currency for sc execution
         if mode == SmartContract.MAKER:
             return self.history[self.maker][self.parr_A] >= self.qnt_A
         elif mode == SmartContract.TAKER:
@@ -35,10 +35,10 @@ class SmartContract:
         else:
             raise Exception("sc", "syntax error")
 
-    def check_time(self):
+    def check_time(self):                          # check if SC is expired
         return self.exp_date == 0 or time.time() < self.exp_date
 
-    def check_all(self):
+    def check_all(self):                           # all conditions
         if ~self.active:
             logging.info("execution: sc is cancelled")
             return False

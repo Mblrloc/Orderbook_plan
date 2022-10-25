@@ -13,14 +13,20 @@ class Blockchain:
 
     def __init__(self):
         self.balance_base = {}
+        self.sc_id = 0
 
     def register_user(self, user):
         self.balance_base[user] = {}
 
+    def register_sc(self):
+        self.sc_id += 1
+        self.balance_base[self.sc_id] = {}
+        return self.sc_id
+
     def change_balance(self, user, currency, qnt, mode):
-        if user in self.balance_base:
+        if user in self.balance_base.keys():
             user_balance = self.balance_base[user]
-            self.change_balance(user_balance, currency, qnt, mode)
+            self.change_value(user_balance, currency, qnt, mode)
         else:
             logging.info("blockchain: no such user")
 
@@ -39,4 +45,4 @@ class Blockchain:
 
     def transfer(self, user_from, user_to, currency, qnt):
         self.change_balance(user_from, currency, qnt, mode=Blockchain.DECREASE)
-        self.change_balance(user_to, currency, qnt,   mode=Blockchain.INCREASE)
+        self.change_balance(user_to, currency, qnt, mode=Blockchain.INCREASE)

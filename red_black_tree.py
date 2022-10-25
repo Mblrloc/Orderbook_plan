@@ -1,6 +1,7 @@
-# Define Node
+# Core implemented from https://blog.boot.dev/python/red-black-tree-python/
 import logging
 from collections import OrderedDict
+import bisect
 
 
 class Node:
@@ -11,13 +12,16 @@ class Node:
         self.right = None  # Right Child of Node
         self.color = 1  # Red Node as new node is always inserted as Red Node
         self.ordered_dict = OrderedDict()
+        self.order_num = 0
 
     def add_order(self, u_id, order):  # Every node stores all bid/ask orders with the same price, RBt is balanced
         # around this price
         self.ordered_dict[u_id] = order
+        self.order_num += 1
 
     def remove_order(self, u_id):
         self.ordered_dict.pop(u_id)
+        self.order_num -= 1
 
 
 # Define R-B Tree
@@ -28,6 +32,7 @@ class RBTree:
         self.NULL.left = None
         self.NULL.right = None
         self.root = self.NULL
+        self.levels = []  # Maybe there is a better solution, no
 
     # Insert New Node
     def insertNode(self, key):
@@ -37,6 +42,8 @@ class RBTree:
         node.left = self.NULL
         node.right = self.NULL
         node.color = 1  # Set root colour as Red
+        if key not in self.levels:
+            bisect.insort(self.levels, key)
 
         y = None
         x = self.root
@@ -69,6 +76,12 @@ class RBTree:
         while node.left != self.NULL:
             node = node.left
         return node
+
+    def all_min(self):
+        return self.levels[0]
+
+    def all_max(self):
+        return self.levels[len(self.levels) - 1]
 
     # Code for left rotate
     def LR(self, x):
@@ -189,6 +202,8 @@ class RBTree:
                     self.RR(x.parent)
                     x = self.root
         x.color = 0
+        if x.val in self.levels: #Костыль TODO
+            self.levels.remove(x.val)
 
     # Function to transplant nodes
     def __rb_transplant(self, u, v):
@@ -262,6 +277,22 @@ class RBTree:
             return False
         return True
 
+    def add_order(self, key, order_id, order):
+        z = self.NULL
+        node = self.root
+        while node != self.NULL:  # Search for the node having that value/ key and store it in 'z'
+            if node.val == key:
+                z = node
+
+            if node.val <= key:
+                node = node.right
+            else:
+                node = node.left
+
+        if z == self.NULL:  # If Kwy is not present then deletion not possible so return
+            logging.error("tree: trying to get node that is not present in tree")
+        z.add_order(order_id, order)
+
     def get_node(self, key):
         z = self.NULL
         node = self.root
@@ -277,6 +308,12 @@ class RBTree:
         if z == self.NULL:  # If Kwy is not present then deletion not possible so return
             logging.error("tree: trying to get node that is not present in tree")
         return z
+
+    def remove_order_from_node(self, key, order):
+        z = self.get_node(key)
+        z.remove_order(order.client_id) # should be order id
+        if (len(z.ordered_dict)) == 0:
+            self.delete_node(key)
 
     # Function to print
     def __printCall(self, node, indent, last):

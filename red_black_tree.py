@@ -202,7 +202,7 @@ class RBTree:
                     self.RR(x.parent)
                     x = self.root
         x.color = 0
-        if x.val in self.levels: #Костыль TODO
+        if x.val in self.levels:
             self.levels.remove(x.val)
 
     # Function to transplant nodes
@@ -256,6 +256,8 @@ class RBTree:
             y.color = z.color
         if y_original_color == 0:  # If color is black then fixing is needed
             self.fixDelete(x)
+        if key in self.levels:
+            self.levels.remove(key)
 
     # Deletion of node
     def delete_node(self, val):
@@ -305,8 +307,6 @@ class RBTree:
             else:
                 node = node.left
 
-        if z == self.NULL:  # If Kwy is not present then deletion not possible so return
-            logging.error("tree: trying to get node that is not present in tree")
         return z
 
     def remove_order_from_node(self, key, order):

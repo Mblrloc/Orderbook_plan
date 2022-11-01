@@ -53,21 +53,21 @@ for i1 in range(100):
 
 for i1 in range(50):
     order = Order(str(i1), parr_A="ETH", parr_B="USDT", direction=Order.BUY,
-                  tif=Order.GTC, o_type=Order.MARKET, qty=int(random.uniform(10, 100)),
+                  tif=Order.GTC, o_type=Order.LIMIT, qty=int(random.uniform(1, 10)),
                   price=int(random.uniform(57, 70)), timestamp=0)
     orderbook.create_order(order)
 
 for i1 in range(50):
     order = Order(str(i1 + 50), parr_A="ETH", parr_B="USDT", direction=Order.SELL,
-                  tif=Order.GTC, o_type=Order.MARKET, qty=int(random.uniform(10, 100)),
-                  price=int(random.uniform(70, 83)), timestamp=0)
+                  tif=Order.GTC, o_type=Order.LIMIT, qty=int(random.uniform(10, 10)),
+                  price=int(random.uniform(71, 83)), timestamp=0)
     orderbook.create_order(order)
 
 print_market()
 
-order = Order("Test1", parr_A="ETH", parr_B="USDT", direction=Order.BUY,
-              tif=Order.GTC, o_type=Order.MARKET, qty=1000,
-              price=65, timestamp=0)
+order = Order("Test1", parr_A="ETH", parr_B="USDT", direction=Order.SELL,
+              tif=Order.GTC, o_type=Order.LIMIT, qty=100,
+              price=68, timestamp=0)
 orderbook.create_order(order)
 
 print_market()

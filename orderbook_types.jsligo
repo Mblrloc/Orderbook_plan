@@ -1,0 +1,66 @@
+type Direction_ = 
+// [@layout:comb] 
+| ["Sell"] 
+| ["Buy"];
+
+type Type_ =
+// [@layout:comb]
+| ["Limit"]
+| ["Market"];
+
+type Order_ = {
+// [@layout:comb] 
+  id : nat,
+  price : tez,
+  client : address,
+  quantity: nat,
+  direction : Direction_,
+  order_type: Type_,
+  date : timestamp,
+  next: option<nat>,
+};
+
+// Делаем односвязный список айдишников(!) ордеров 
+//    
+//   HEAD                TAIL 
+//    1 -> 2 -> 3 -> 4 -> 5
+// 
+//  Храним только номера, а сами ордера храним в мапе <id, order>
+
+type LinkedList = 
+// [@layout:comb] 
+{
+  head_id: option<nat>,
+  tail_id: option<nat>,
+};
+
+type OrderMap_ = map<nat, Order_>;
+
+// Стакан заявок <цена, список ордеров>
+type Cup_ = map<tez, LinkedList>;
+
+type storage_ = 
+// [@layout:comb] 
+{
+  asks_market: LinkedList, //LL всех маркет асков
+  bids_market: LinkedList, //LL всех маркет баев
+  highest_buy: tez, //Лучшая цена на покупку 
+  lowest_sell: tez, //Лучшая цена на продажу
+  asks : Cup_, // Храним списки айдишников
+  bids : Cup_, // Храним списки айдишников
+  order_map : OrderMap_, // Храним ордера
+  last_id : nat, //Cоздаем уникальные id'шники для пользователей
+  token_address: address //Адрес токена
+};
+
+type return_ = [list<operation>, storage_];
+
+type parameter_ = 
+// [@layout:comb] 
+| ["Sell", [tez, nat]]
+| ["Buy", [tez, nat]]
+| ["Block", nat]
+| ["Match", [nat, nat]]
+| ["Sell_market", nat]
+| ["Buy_market", nat]
+| ["Cancel", nat];

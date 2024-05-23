@@ -1,0 +1,545 @@
+#import "f12token_types.jsligo" "FA12"
+#include "orderbook_types.jsligo"
+
+const addToList = (old_order_list: LinkedList, new_order: Order_, order_map: OrderMap_) => { //Перенес обновление OrderMap в formOrder
+  
+  // Достаем айди старого tail
+  let old_tail_id_: option<nat> = old_order_list.tail_id;
+  
+  // Достаем айди нового tail
+  let new_order_id = new_order.id;
+
+  // Пытаемся вытащить старый ордер из мапы, чтобы заапдейтить его указатель
+  // на новой tail и заодно добавить новый tail в мапу
+  match(old_tail_id_, {
+    // Если список не пустой, то достаем ордер
+    Some: (old_tail_id: nat) => {
+      let tail_order: Order_ = 
+        match((Map.find_opt(old_tail_id, order_map)), {
+          Some: (ord: Order_) => ord,
+          None: () => failwith("No order found!") as Order_,
+      });
+      let old_head_id: nat = match(old_order_list.head_id, {
+        Some: (x: nat) => x,
+        None: () => failwith("No head found"),
+      });
+      // Апдейтим старый tail
+      // check https://ligolang.org/docs/language-basics/maps-records  FUNCTIONAL UPDATES
+      let updated_tail_order = ({...tail_order, next: Some(new_order_id)});
+      // Апдейтим мапу
+      let updated_order_map: OrderMap_ = Map.update(old_tail_id, Some(updated_tail_order), order_map);
+      // Добавляем новый ордер в мапу
+      let final_order_map = Map.update(new_order_id, Some(new_order), updated_order_map);
+
+      // Создаем новый лист с новым tail
+      let new_list: LinkedList = {head_id: Some(old_head_id), tail_id: Some(new_order_id)};
+      return [new_list, final_order_map];
+    },
+    // Если tail пустой то возвращаем список с одним элементом head==tail и апдейтим мапу
+    None: () => {
+      let new_list: LinkedList = {head_id: Some(new_order_id), tail_id: Some(new_order_id)};
+      let updated_order_map: OrderMap_ = Map.update(new_order_id, Some(new_order), order_map);
+      return [new_list, updated_order_map];
+    }
+  });
+}
+
+const get_id = (storage: storage_) : storage_ => { // Получаем новый айдишник
+  let id: nat = storage.last_id;
+  let new_id: nat = id + (1 as nat);
+  let new_storage = ({...storage, last_id: new_id});
+  return new_storage;
+}
+
+
+
+const addMarketOrder = (direction: Direction_, qnt: nat, old_storage: storage_) : return_ => {
+  let new_storage = get_id(old_storage); //Обновляем айдишник в сторадже
+  const datetime : timestamp = Tezos.get_now(); //Tezos.get_now(); не работает???
+  const senderAdr : address = Tezos.get_sender() as address; //Tezos.get_sender(); тоже не работает
+  const new_id = new_storage.last_id;
+
+  // Делаем новый ордер
+  const new_order: Order_ = {
+      order_type: Market(),
+      id: new_id,
+      client: senderAdr,
+      direction: direction,
+      price: 0 as tez,
+      quantity: qnt,
+      date: datetime,
+      next: None() as option<nat>
+  }; // const addToList = (old_order_list: LinkedList, new_order: Order_, order_map: OrderMap_) : [new_list, updated_order_map]
+
+  const old_ll = match(direction, {
+    Buy: () => new_storage.asks_market,
+    Sell: () => new_storage.bids_market,
+  });
+
+  let old_om = new_storage.order_map;
+  let [new_list, new_order_map] = addToList(old_ll, new_order, old_om);
+  new_storage = match(direction, {
+    Buy: () => {({...new_storage, bids_market: new_list, order_map: new_order_map});},
+    Sell: () => {({...new_storage, asks_market: new_list, order_map: new_order_map});}
+  });
+  return [list([]) as list<operation>, new_storage];
+}
+
+const getPriceList = (price: tez, cup: Cup_): LinkedList => {
+  let price_list: LinkedList = match(Map.find_opt(price as tez, cup), {
+    Some: (ll: LinkedList) => ll,
+    None: () => {
+      let llist : LinkedList = {
+        head_id: None() as option<nat>,
+        tail_id: None() as option<nat>,
+      };
+      return llist;
+    },
+  });
+  return price_list;
+}
+
+const addNewOrder = (old_storage: storage_, ord: [Direction_, tez, nat]) : storage_  => { // Формирует и добавляет в листы ордер
+  let [direction, price, quantity] = ord; //BUY/SELL
+  let new_storage = get_id(old_storage); //Обновляем айдишник в сторадже
+  let datetime : timestamp = Tezos.get_now(); //Tezos.get_now(); не работает???
+  let senderAdr : address = Tezos.get_sender() as address; //Tezos.get_sender(); тоже не работает
+  let new_id = new_storage.last_id;
+
+  // Делаем новый ордер
+  let new_order: Order_ = {
+      order_type: Limit(),
+      id: new_id,
+      client: senderAdr,
+      direction: direction,
+      price: price as tez,
+      quantity: quantity,
+      date: datetime,
+      next: None() as option<nat>
+  };
+  
+  // Добавляем в общую книгу новый ордер
+  let orderMap = new_storage.order_map;
+  orderMap = Map.update(new_order.id, Some(new_order), orderMap);
+
+  // Достаем стакан, чтобы заапдейтить лист заявок
+  let cup : Cup_ = match(direction, {
+    Buy: () => new_storage.bids,
+    Sell: () => new_storage.asks,
+  });
+
+  // Ищем в стакане, лл по цене
+  let price_list: LinkedList = getPriceList(price, cup);
+
+  //Добавляем в лист новый ордер и апдейтим книгу ордеров
+  let [updated_price_list, updated_order_map] = addToList(price_list, new_order, orderMap);
+  
+  cup = Map.update(price, Some(updated_price_list), cup);
+
+  new_storage = match(direction, {
+    Sell: () => {
+      ({...new_storage, asks : cup, order_map : updated_order_map});
+    },
+    Buy: () => {
+      ({...new_storage, bids: cup, order_map : updated_order_map});
+    },
+  })
+
+  return new_storage;
+}
+
+
+
+const removeMarketOrderById = (id_to_remove: nat, storage: storage_): storage_ => {
+  // Достать ордер из мапы
+  let order_map: OrderMap_ = storage.order_map;
+  let order_to_remove: Order_ = match(Map.find_opt(id_to_remove, order_map), {
+    Some: (ord: Order_) => ord,
+    None: () => failwith("No such order!")
+  });
+  // найти лист с ордером
+  let order_to_remove_direction: Direction_ = order_to_remove.direction;
+  let order_list: LinkedList = match(order_to_remove_direction, {
+    Sell: () => storage.asks_market,
+    Buy: () => storage.bids_market
+  });
+  // найти предыдущий ордер, ордер
+  
+  // Если ордер == head
+  let lhead: nat =  match(order_list.head_id, {
+    Some: (x: nat) => x,
+    None: () => failwith("Empty list"),
+  });
+  
+  if (id_to_remove == lhead) {
+    // достать номер следующего ордера
+    let order_to_remove_next_id:option<nat> = order_to_remove.next;
+    // сдвинуть head
+    order_list = ({...order_list, head_id: order_to_remove_next_id});
+    // удалить ордер
+    order_map = Map.remove(id_to_remove, order_map);
+  } 
+  else {
+    
+    let previous_order_id: nat = lhead;
+    let previous_order: Order_ = order_to_remove;
+    let current_order_id: nat = previous_order_id;
+    
+    while (current_order_id != id_to_remove){
+      let current_order: Order_  = match(Map.find_opt(current_order_id, order_map), {
+        Some: (ord: Order_) => ord,
+        None: () => failwith("No such order!")
+      });
+      previous_order_id = current_order_id;
+      previous_order = current_order;
+      current_order_id = match(current_order.next, {
+        Some: (ord_id: nat) => ord_id,
+        None: () => failwith("List is over!")
+      });
+    };
+    // изменить поле next предыдущего ордер
+    let order_to_remove_next_id:option<nat> = order_to_remove.next;
+    previous_order = ({...previous_order, next: order_to_remove_next_id});
+    order_map = Map.update(previous_order_id, Some(previous_order), order_map);
+    
+    // Убрать ордер из мапы
+    order_map = Map.remove(id_to_remove, order_map);
+    
+    // если был tail то изменить tail на предыдущий
+    order_list = ({...order_list, tail_id: order_to_remove_next_id});
+  
+  };
+  let new_storage = match(order_to_remove_direction, {
+    Sell: () => {
+      ({...storage, asks_market : order_list, order_map : order_map});
+    },
+    Buy: () => {
+      ({...storage, bids_market: order_list, order_map : order_map});
+    },
+  });
+
+  // let new_order_map: OrderMap_ = Map.remove(id_to_remove, order_map);
+  return new_storage;
+};
+
+const removeOrderById = (id_to_remove: nat, storage: storage_): storage_ => {
+  // Достать ордер из мапы
+  let order_map: OrderMap_ = storage.order_map;
+  let order_to_remove: Order_ = match(Map.find_opt(id_to_remove, order_map), {
+    Some: (ord: Order_) => ord,
+    None: () => failwith("No such order!")
+  });
+  // найти лист с ордером
+  let order_to_remove_direction: Direction_ = order_to_remove.direction;
+  let cup: Cup_ = match(order_to_remove_direction, {
+    Sell: () => storage.asks,
+    Buy: () => storage.bids
+  });
+  let order_to_remove_price: tez = order_to_remove.price;
+  let order_list: LinkedList = match(Map.find_opt(order_to_remove_price, cup), {
+    Some: (ll: LinkedList) => ll,
+    None: () => failwith("No such price lvl!")
+  });
+  // найти предыдущий ордер, ордер
+  
+  // Если ордер == head
+  let lhead: nat =  match(order_list.head_id, {
+    Some: (x: nat) => x,
+    None: () => failwith("Empty list"),
+  });
+  
+  if (id_to_remove == lhead) {
+    // достать номер следующего ордера
+    let order_to_remove_next_id:option<nat> = order_to_remove.next;
+    // сдвинуть head
+    order_list = ({...order_list, head_id: order_to_remove_next_id});
+    // удалить ордер
+    order_map = Map.remove(id_to_remove, order_map);
+  } 
+  else {
+    
+    let previous_order_id: nat = lhead;
+    let previous_order: Order_ = order_to_remove;
+    let current_order_id: nat = previous_order_id;
+    
+    while (current_order_id != id_to_remove){
+      let current_order: Order_  = match(Map.find_opt(current_order_id, order_map), {
+        Some: (ord: Order_) => ord,
+        None: () => failwith("No such order!")
+      });
+      previous_order_id = current_order_id;
+      previous_order = current_order;
+      current_order_id = match(current_order.next, {
+        Some: (ord_id: nat) => ord_id,
+        None: () => failwith("List is over!")
+      });
+    };
+    // изменить поле next предыдущего ордер
+    let order_to_remove_next_id:option<nat> = order_to_remove.next;
+    previous_order = ({...previous_order, next: order_to_remove_next_id});
+    order_map = Map.update(previous_order_id, Some(previous_order), order_map);
+    
+    // Убрать ордер из мапы
+    order_map = Map.remove(id_to_remove, order_map);
+    
+    // если был tail то изменить tail на предыдущий
+    order_list = ({...order_list, tail_id: order_to_remove_next_id});
+  
+  };
+    
+  cup = Map.update(order_to_remove_price, Some(order_list), cup);
+
+  let new_storage = match(order_to_remove_direction, {
+    Sell: () => {
+      ({...storage, asks : cup, order_map : order_map});
+    },
+    Buy: () => {
+      ({...storage, bids: cup, order_map : order_map});
+    },
+  });
+
+  // let new_order_map: OrderMap_ = Map.remove(id_to_remove, order_map);
+  return new_storage;
+};
+const block_token = (amount: nat, storage: storage_): return_ => {
+  let token_transfer_dest_opt: option<contract<FA12.transfer>> = Tezos.get_entrypoint_opt("%transfer", storage.token_address);
+  let token_transfer_dest: contract<FA12.transfer> = match(token_transfer_dest_opt, {
+        Some: (ci: contract<FA12.transfer>) => ci,
+        None: () => failwith("Entrypoint not found")
+    });
+
+  let transfer_param : FA12.transfer = {
+      address_from : Tezos.get_sender(),
+      address_to : Tezos.get_self_address(),
+      value : amount
+  };
+  const op: operation = Tezos.transaction(transfer_param, 0 as tez, token_transfer_dest);
+
+  return [list([op]) as list<operation>, storage];
+}
+
+
+const block_token_second = (amount: nat, storage: storage_): operation => {
+  let token_transfer_dest_opt: option<contract<FA12.transfer>> = Tezos.get_entrypoint_opt("%transfer", storage.token_address);
+  let token_transfer_dest: contract<FA12.transfer> = match(token_transfer_dest_opt, {
+        Some: (ci: contract<FA12.transfer>) => ci,
+        None: () => failwith("Entrypoint not found")
+    });
+
+  let transfer_param : FA12.transfer = {
+      address_from : Tezos.get_sender(),
+      address_to : Tezos.get_self_address(),
+      value : amount
+  };
+  const op: operation = Tezos.transaction(transfer_param, 0 as tez, token_transfer_dest);
+
+  return op;
+}
+
+const selling = (pq: [tez, nat], storage: storage_): return_ => {
+  let [price, quantity] = pq;
+
+
+  let st: storage_ = storage;
+  let new_storage = addNewOrder(st,[Sell(), price, quantity]);
+
+  if (price < storage.lowest_sell) {
+    new_storage = ({...new_storage, lowest_sell: price});
+  };
+  let op = block_token_second(quantity, new_storage);
+  return [list([op]) as list<operation>, new_storage];
+}
+
+const buying = (pq: [tez, nat], storage: storage_): return_ => {
+    let [price, quantity] = pq;
+
+    if (Tezos.get_amount() < price * quantity) { //Transfering tez to our contract
+      return failwith("Error: Not enought tez to enter orderbook!") as return_;
+    };
+
+    let new_storage = addNewOrder(storage,[Buy(), price, quantity]);
+
+    if (price > storage.highest_buy) {
+      new_storage = ({...new_storage, highest_buy: price});
+    };
+    return [list([]) as list<operation>, new_storage];
+  }
+
+const transfer_token = (amount: nat, to: address, token_address: address): operation => {
+  let token_transfer_dest_opt: option<contract<FA12.transfer>> = Tezos.get_entrypoint_opt("%transfer", token_address);
+  let token_transfer_dest: contract<FA12.transfer> = match(token_transfer_dest_opt, {
+        Some: (ci: contract<FA12.transfer>) => ci,
+        None: () => failwith("Entrypoint not found")
+    });
+  let transfer_param : FA12.transfer = {
+      address_from : Tezos.get_self_address(),
+      address_to : to,
+      value : amount
+  };
+  let op: operation = Tezos.transaction(transfer_param, 0 as tez, token_transfer_dest);
+  return op;
+}
+
+
+const reduceQntById = (ord_id: nat, qnt: int, old_storage: storage_) : storage_ => {
+  let old_order : Order_ = match(Map.find_opt(ord_id, old_storage.order_map), {
+    Some: ord => ord,
+    None: () => failwith("No such order to reduce qnt!")
+  });
+  let new_ord : Order_ = {...old_order, quantity: abs(qnt)};
+  let new_order_map : OrderMap_ = Map.update(ord_id, Some(new_ord), old_storage.order_map);
+  return {...old_storage, order_map : new_order_map}
+
+}
+
+const change_order_qnt = (order_type: Type_,  ord_id: nat, new_qnt : int, old_storage: storage_) : storage_ => {
+  if (new_qnt <= 0) {
+    let st : storage_ = match(order_type, {
+      Limit: () => removeOrderById(ord_id, old_storage),
+      Market: () => removeMarketOrderById(ord_id, old_storage)
+    });
+    return st;
+  } else {
+    return reduceQntById(ord_id, new_qnt, old_storage);
+  };
+}
+
+
+const match_orders = (buy_ord_id: nat, sell_ord_id: nat, old_storage: storage_): return_ => {
+  
+  let order_mp : OrderMap_ = old_storage.order_map;
+
+  let buy_ord: Order_ = match(Map.find_opt(buy_ord_id, order_mp), {
+    Some: (ord: Order_) => ord,
+    None: () => failwith("No such buy order!")
+  });
+  
+  let sell_ord: Order_ = match(Map.find_opt(sell_ord_id, order_mp), {
+    Some: (ord: Order_) => ord,
+    None: () => failwith("No such sell order!")
+  });
+
+  let dummy: nat = match(buy_ord.direction, {
+    Sell: () => failwith("Wrong direction of buy order!"),
+    Buy: () => 1 as nat
+  });
+
+  dummy = match(sell_ord.direction, {
+    Buy: ()=> failwith("Wrong direction of sell ord!"),
+    Sell: ()=> 1 as nat
+  });
+
+  let both_prc = 0 as tez;
+
+  if (buy_ord.order_type == Limit()) {
+    let buy_ll = match(Map.find_opt(buy_ord.price, old_storage.bids as Cup_), {
+      Some: ll => ll,
+      None: () => failwith("No such price level in bids!")
+    });
+
+    if ((Option.unopt(buy_ll.head_id) != buy_ord_id)) {
+      return failwith("There is similar buy order, with earlier deployment!");
+    }
+
+  } else {
+    both_prc = sell_ord.price as tez;
+    if (both_prc != old_storage.highest_buy) {
+      return failwith("There is better buy limit order for market sell order!");
+    };
+
+    if (buy_ord_id != Option.unopt(old_storage.asks_market.head_id)) {
+      return failwith("There is market buy order with earlier deploynment");
+    };
+  };
+
+  if (sell_ord.order_type == Limit()) {
+    let sell_ll = match(Map.find_opt(sell_ord.price, old_storage.asks as Cup_), {
+      Some: ll => ll,
+      None: () => failwith("No such price level in asks!")
+    });
+
+    if ((Option.unopt(sell_ll.head_id) != sell_ord_id)) {
+      return failwith("There is similar sell order, with earlier deployment!");
+    };
+  } else {
+    both_prc = buy_ord.price as tez;
+    if (both_prc != old_storage.lowest_sell) {
+      return failwith("There is better buy limit order for market sell order!");
+    };
+
+    if (sell_ord_id != Option.unopt(old_storage.bids_market.head_id)) {
+      return failwith("There is market buy order with earlier deploynment");
+    };
+  };
+
+  if ((buy_ord.order_type == Limit()) && (sell_ord.order_type == Limit() && (buy_ord.price != sell_ord.price))) {
+      return failwith("Wrong orders, prices don't match!") as return_;
+  };
+
+  if ((buy_ord.order_type == Market()) && (sell_ord.order_type == Market())) {
+      return failwith("You can't match 2 Market orders!") as return_;
+  };
+
+  let qnt = buy_ord.quantity;
+
+  if (sell_ord.quantity < buy_ord.quantity) {
+    qnt = sell_ord.quantity;
+  }
+
+  let sell_contract = match (Tezos.get_contract_opt(sell_ord.client), {
+  Some: c => c,
+  None: () => failwith("Error: No sell user address!")
+  });
+
+  let sell_payment : operation = Tezos.transaction(unit, both_prc * qnt, sell_contract);
+  let buy_payment : operation = transfer_token(qnt, buy_ord.client, old_storage.token_address);
+
+  let new_storage : storage_ = change_order_qnt(sell_ord.order_type, sell_ord.id, sell_ord.quantity - qnt, old_storage);
+  new_storage = change_order_qnt(buy_ord.order_type, buy_ord.id, buy_ord.quantity - qnt, new_storage);
+
+  return [list([sell_payment, buy_payment]) as list<operation>, new_storage];
+}
+
+const cancelOrder = (ord_id, storage: storage_) : return_ => {
+  let order_map: OrderMap_ = storage.order_map;
+  let order_to_cancel: Order_ = match(Map.find_opt(ord_id, order_map), {
+    Some: (ord: Order_) => ord,
+    None: () => failwith("No such order!")
+  });
+  let sender = Tezos.get_sender() as address;
+  if (sender != order_to_cancel.client) {
+    return failwith("You can't cancel others people orders!");
+  }
+  let st : storage_ = match(order_to_cancel.order_type, {
+      Limit: () => removeOrderById(ord_id, storage),
+      Market: () => removeMarketOrderById(ord_id, storage)
+  });
+  let qnt = order_to_cancel.quantity;
+  let op = match(order_to_cancel.direction, {
+    Buy: () => {  
+              let sell_contract = match (Tezos.get_contract_opt(sender), { //Transfering FA1.2 token to our contract
+                Some: c => c,
+                None: () => failwith("Error: No sell user address!")
+              });
+              Tezos.transaction(unit, order_to_cancel.price * qnt, sell_contract)},
+    Sell: () => transfer_token(qnt, sender, storage.token_address)
+  });
+  return [list([op]) as list<operation>, st]; 
+}
+
+
+const main = (parameter: parameter_, storage: storage_): return_ => {
+  const ret = 
+  match(parameter, {
+    Sell: (pq: [tez, nat]) => selling(pq, storage),
+    Buy: (pq: [tez, nat]) => buying(pq, storage),
+    Block: (a: nat) => block_token(a, storage),
+    Match: (id_buysell: [nat, nat]) => match_orders(id_buysell[0], id_buysell[0], storage),
+    Sell_market: (qnt: nat) => addMarketOrder(Sell(), qnt, storage),
+    Buy_market: (qnt: nat) => addMarketOrder(Buy(), qnt, storage),
+    Cancel: (ord_id: nat) => cancelOrder(ord_id, storage),
+    });
+  return ret;
+  };
+
+
